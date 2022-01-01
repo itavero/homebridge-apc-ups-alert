@@ -16,6 +16,10 @@ export class UpsPlatformAccessory {
   private isOnline: boolean;
   private highestTimeRemaining: number | undefined;
 
+  private get interval(): number {
+    return (this.config?.interval ?? 20) * 1000;
+  }
+
   constructor(
     private readonly platform: UpsAlertHomebridgePlatform,
     private readonly accessory: PlatformAccessory,
@@ -37,14 +41,14 @@ export class UpsPlatformAccessory {
 
     this.isOnline = false;
 
-    setInterval(() => {
+    setTimeout(() => {
       this.pollForInformation();
-    }, this.config.interval ?? 10000);
+    }, this.interval);
   }
 
   private async pollForInformation(): Promise<void> {
-    const client = new ApcAccess();
     try {
+      const client = new ApcAccess();
       await client.connect(this.config.host, this.config.port ?? 3551);
       const result = await client.getStatusJson();
       await client.disconnect;
@@ -52,6 +56,9 @@ export class UpsPlatformAccessory {
     } catch (error) {
       this.platform.log.warn(`Error while polling ${this.config.host}: ${errorToString(error)}`);
     }
+    setTimeout(() => {
+      this.pollForInformation();
+    }, this.interval);
   }
 
   private static normalizeString(value: string): string {

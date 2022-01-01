@@ -111,5 +111,11 @@ export class UpsAlertHomebridgePlatform implements DynamicPlatformPlugin {
         this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       }
     }
+
+    // Unregister old accessories
+    const oldAccessories = this.accessories.filter(accessory => !usedIds.has(accessory.UUID));
+    if (oldAccessories.length > 0) {
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, oldAccessories);
+    }
   }
 }
