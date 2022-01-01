@@ -1,7 +1,7 @@
 {
   "displayName": "homebridge-apc-ups-alert",
   "name": "homebridge-apc-ups-alert",
-  "version": "0.0.1",
+  "version": "0.0.1-beta.0",
   "description": "Provide information (and alerts) for apcupsd connected Uninterruptible Power Supplies",
   "license": "Apache-2.0",
   "repository": {
