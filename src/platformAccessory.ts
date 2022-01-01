@@ -1,141 +1,161 @@
-import { Service, PlatformAccessory, CharacteristicValue } from 'homebridge';
-
-import { ExampleHomebridgePlatform } from './platform';
+import { Service, PlatformAccessory } from 'homebridge';
+import { hap } from './hap';
+import { errorToString, getOrAddCharacteristic, objectsEqual } from './helpers';
+import { UpsAlertHomebridgePlatform } from './platform';
+import ApcAccess from 'apcaccess';
+import { ServerConfiguration } from './configModels';
+import { KnownStatus, OptionalKeys, StandardKeys } from './dataModels';
 
 /**
  * Platform Accessory
  * An instance of this class is created for each accessory your platform registers
  * Each accessory may expose multiple services of different service types.
  */
-export class ExamplePlatformAccessory {
+export class UpsPlatformAccessory {
   private service: Service;
-
-  /**
-   * These are just used to create a working example
-   * You should implement your own code to track the state of your accessory
-   */
-  private exampleStates = {
-    On: false,
-    Brightness: 100,
-  };
+  private isOnline: boolean;
+  private highestTimeRemaining: number | undefined;
 
   constructor(
-    private readonly platform: ExampleHomebridgePlatform,
+    private readonly platform: UpsAlertHomebridgePlatform,
     private readonly accessory: PlatformAccessory,
+    private readonly config: ServerConfiguration,
   ) {
+    this.service = this.accessory.getService(hap.Service.LeakSensor) || this.accessory.addService(hap.Service.LeakSensor);
 
     // set accessory information
-    this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Default-Manufacturer')
-      .setCharacteristic(this.platform.Characteristic.Model, 'Default-Model')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, 'Default-Serial');
+    if (this.accessory.context.dataCache !== undefined) {
+      this.platform.log.info(`Cached info for ${this.accessory.displayName}: ${JSON.stringify(this.accessory.context.dataCache)}`);
+      this.processData(this.accessory.context.dataCache);
+    } else {
+      this.accessory.getService(hap.Service.AccessoryInformation)!
+        .setCharacteristic(hap.Characteristic.Name, config.host)
+        .setCharacteristic(hap.Characteristic.Manufacturer, config.manufacturer ?? 'UPS')
+        .setCharacteristic(hap.Characteristic.Model, 'Unknown Model')
+        .setCharacteristic(hap.Characteristic.SerialNumber, 'SN0000');
+    }
 
-    // get the LightBulb service if it exists, otherwise create a new LightBulb service
-    // you can create multiple services for each accessory
-    this.service = this.accessory.getService(this.platform.Service.Lightbulb) || this.accessory.addService(this.platform.Service.Lightbulb);
+    this.isOnline = false;
 
-    // set the service name, this is what is displayed as the default name on the Home app
-    // in this example we are using the name we stored in the `accessory.context` in the `discoverDevices` method.
-    this.service.setCharacteristic(this.platform.Characteristic.Name, accessory.context.device.exampleDisplayName);
-
-    // each service must implement at-minimum the "required characteristics" for the given service type
-    // see https://developers.homebridge.io/#/service/Lightbulb
-
-    // register handlers for the On/Off Characteristic
-    this.service.getCharacteristic(this.platform.Characteristic.On)
-      .onSet(this.setOn.bind(this))                // SET - bind to the `setOn` method below
-      .onGet(this.getOn.bind(this));               // GET - bind to the `getOn` method below
-
-    // register handlers for the Brightness Characteristic
-    this.service.getCharacteristic(this.platform.Characteristic.Brightness)
-      .onSet(this.setBrightness.bind(this));       // SET - bind to the 'setBrightness` method below
-
-    /**
-     * Creating multiple services of the same type.
-     *
-     * To avoid "Cannot add a Service with the same UUID another Service without also defining a unique 'subtype' property." error,
-     * when creating multiple services of the same type, you need to use the following syntax to specify a name and subtype id:
-     * this.accessory.getService('NAME') || this.accessory.addService(this.platform.Service.Lightbulb, 'NAME', 'USER_DEFINED_SUBTYPE_ID');
-     *
-     * The USER_DEFINED_SUBTYPE must be unique to the platform accessory (if you platform exposes multiple accessories, each accessory
-     * can use the same sub type id.)
-     */
-
-    // Example: add two "motion sensor" services to the accessory
-    const motionSensorOneService = this.accessory.getService('Motion Sensor One Name') ||
-      this.accessory.addService(this.platform.Service.MotionSensor, 'Motion Sensor One Name', 'YourUniqueIdentifier-1');
-
-    const motionSensorTwoService = this.accessory.getService('Motion Sensor Two Name') ||
-      this.accessory.addService(this.platform.Service.MotionSensor, 'Motion Sensor Two Name', 'YourUniqueIdentifier-2');
-
-    /**
-     * Updating characteristics values asynchronously.
-     *
-     * Example showing how to update the state of a Characteristic asynchronously instead
-     * of using the `on('get')` handlers.
-     * Here we change update the motion sensor trigger states on and off every 10 seconds
-     * the `updateCharacteristic` method.
-     *
-     */
-    let motionDetected = false;
     setInterval(() => {
-      // EXAMPLE - inverse the trigger
-      motionDetected = !motionDetected;
-
-      // push the new value to HomeKit
-      motionSensorOneService.updateCharacteristic(this.platform.Characteristic.MotionDetected, motionDetected);
-      motionSensorTwoService.updateCharacteristic(this.platform.Characteristic.MotionDetected, !motionDetected);
-
-      this.platform.log.debug('Triggering motionSensorOneService:', motionDetected);
-      this.platform.log.debug('Triggering motionSensorTwoService:', !motionDetected);
-    }, 10000);
+      this.pollForInformation();
+    }, this.config.interval ?? 10000);
   }
 
-  /**
-   * Handle "SET" requests from HomeKit
-   * These are sent when the user changes the state of an accessory, for example, turning on a Light bulb.
-   */
-  async setOn(value: CharacteristicValue) {
-    // implement your own code to turn your device on/off
-    this.exampleStates.On = value as boolean;
-
-    this.platform.log.debug('Set Characteristic On ->', value);
+  private async pollForInformation(): Promise<void> {
+    const client = new ApcAccess();
+    try {
+      await client.connect(this.config.host, this.config.port ?? 3551);
+      const result = await client.getStatusJson();
+      await client.disconnect;
+      this.processData(result);
+    } catch (error) {
+      this.platform.log.warn(`Error while polling ${this.config.host}: ${errorToString(error)}`);
+    }
   }
 
-  /**
-   * Handle the "GET" requests from HomeKit
-   * These are sent when HomeKit wants to know the current state of the accessory, for example, checking if a Light bulb is on.
-   *
-   * GET requests should return as fast as possbile. A long delay here will result in
-   * HomeKit being unresponsive and a bad user experience in general.
-   *
-   * If your device takes time to respond you should update the status of your device
-   * asynchronously instead using the `updateCharacteristic` method instead.
-
-   * @example
-   * this.service.updateCharacteristic(this.platform.Characteristic.On, true)
-   */
-  async getOn(): Promise<CharacteristicValue> {
-    // implement your own code to check if the device is on
-    const isOn = this.exampleStates.On;
-
-    this.platform.log.debug('Get Characteristic On ->', isOn);
-
-    // if you need to return an error to show the device as "Not Responding" in the Home app:
-    // throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
-
-    return isOn;
+  private static normalizeString(value: string): string {
+    return value.trim();
   }
 
-  /**
-   * Handle "SET" requests from HomeKit
-   * These are sent when the user changes the state of an accessory, for example, changing the Brightness
-   */
-  async setBrightness(value: CharacteristicValue) {
-    // implement your own code to set the brightness
-    this.exampleStates.Brightness = value as number;
-
-    this.platform.log.debug('Set Characteristic Brightness -> ', value);
+  private static extractNumber(value: string | number): number {
+    if (typeof value === 'string') {
+      return Number(value.trim().replace(/\s.*/, ''));
+    }
+    return value;
   }
 
+  private static normalizeProperty(value: string): string {
+    return value.replace(' ', '').trim().toUpperCase();
+  }
+
+  private processData(data: object): void {
+
+    const accessoryInfo = this.accessory.getService(hap.Service.AccessoryInformation);
+    const initialCache = this.accessory.context.dataCache;
+    if (this.accessory.context.dataCache === undefined) {
+      this.accessory.context.dataCache = {};
+    }
+
+    for (const prop in data) {
+      const propNormalized = UpsPlatformAccessory.normalizeProperty(prop);
+      switch (propNormalized) {
+        case StandardKeys.Model:
+          this.accessory.context.dataCache[propNormalized] = UpsPlatformAccessory.normalizeString(data[prop]);
+          accessoryInfo?.updateCharacteristic(hap.Characteristic.Model, this.accessory.context.dataCache[propNormalized]);
+          break;
+        case StandardKeys.UpsName:
+          this.accessory.context.dataCache[propNormalized] = UpsPlatformAccessory.normalizeString(data[prop]);
+          accessoryInfo?.updateCharacteristic(hap.Characteristic.Name, this.accessory.context.dataCache[propNormalized]);
+          break;
+        case StandardKeys.Status:
+          {
+            const status = UpsPlatformAccessory.normalizeString(data[prop]);
+            if (status === KnownStatus.CommunicationLost) {
+              this.isOnline = false;
+            } else {
+              this.isOnline = true;
+              if (status === KnownStatus.OnLine) {
+                this.service.updateCharacteristic(hap.Characteristic.LeakDetected, hap.Characteristic.LeakDetected.LEAK_NOT_DETECTED);
+              } else {
+                // Assume on battery
+                this.service.updateCharacteristic(hap.Characteristic.LeakDetected, hap.Characteristic.LeakDetected.LEAK_DETECTED);
+              }
+            }
+          }
+          break;
+        case OptionalKeys.ApcModel:
+          this.accessory.context.dataCache[propNormalized] = UpsPlatformAccessory.normalizeString(data[prop]);
+          accessoryInfo?.updateCharacteristic(hap.Characteristic.Model, this.accessory.context.dataCache[propNormalized]);
+          accessoryInfo?.updateCharacteristic(hap.Characteristic.Manufacturer, 'APC');
+          break;
+        case OptionalKeys.SerialNumber:
+          this.accessory.context.dataCache[propNormalized] = UpsPlatformAccessory.normalizeString(data[prop]);
+          accessoryInfo?.updateCharacteristic(hap.Characteristic.SerialNumber, this.accessory.context.dataCache[propNormalized]);
+          break;
+        case OptionalKeys.FirmwareVersion:
+          this.accessory.context.dataCache[propNormalized] = UpsPlatformAccessory.normalizeString(data[prop]);
+          accessoryInfo?.updateCharacteristic(hap.Characteristic.FirmwareRevision, this.accessory.context.dataCache[propNormalized]);
+          break;
+        case OptionalKeys.ManufactureDate:
+          this.accessory.context.dataCache[propNormalized] = UpsPlatformAccessory.normalizeString(data[prop]);
+          accessoryInfo?.updateCharacteristic(hap.Characteristic.HardwareRevision, this.accessory.context.dataCache[propNormalized]);
+          break;
+        case OptionalKeys.BatteryLevel:
+          {
+            this.accessory.context.dataCache[propNormalized] = UpsPlatformAccessory.extractNumber(data[prop]);
+            this.service.updateCharacteristic(hap.Characteristic.BatteryLevel, this.accessory.context.dataCache[propNormalized]);
+            const hasLowBattery = (this.accessory.context.dataCache[propNormalized] <= (this.config.low_battery_threshold ?? 30));
+            this.service.updateCharacteristic(hap.Characteristic.StatusLowBattery, hasLowBattery ?
+              hap.Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW : hap.Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL);
+          }
+          break;
+        case OptionalKeys.RemainingRuntime:
+          {
+            this.accessory.context.dataCache[propNormalized] = UpsPlatformAccessory.extractNumber(data[prop]);
+            // minutes to seconds
+            const duration = 60 * this.accessory.context.dataCache[propNormalized];
+            if ((this.highestTimeRemaining === undefined) || (this.highestTimeRemaining < duration)) {
+              getOrAddCharacteristic(this.service, hap.Characteristic.RemainingDuration).setProps({
+                minValue: 0,
+                maxValue: duration,
+              });
+              this.highestTimeRemaining = duration;
+            }
+            this.service.updateCharacteristic(hap.Characteristic.RemainingDuration, duration);
+          }
+          break;
+        case OptionalKeys.InternalTemperature:
+          {
+            this.accessory.context.dataCache[propNormalized] = UpsPlatformAccessory.extractNumber(data[prop]);
+            this.service.updateCharacteristic(hap.Characteristic.CurrentTemperature, this.accessory.context.dataCache[propNormalized]);
+          }
+          break;
+      }
+
+      if (!objectsEqual(initialCache, this.accessory.context.dataCache)) {
+        this.platform.log.debug(`Cache updated (${this.accessory.displayName}): ${JSON.stringify(this.accessory.context.dataCache)}`);
+      }
+    }
+  }
 }

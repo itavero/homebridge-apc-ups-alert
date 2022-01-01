@@ -1,40 +1,74 @@
 {
-  "private": true,
-  "displayName": "Plugin Name",
-  "name": "homebridge-plugin-name",
-  "version": "1.0.0",
-  "description": "A short description about what your plugin does.",
+  "displayName": "homebridge-apc-ups-alert",
+  "name": "homebridge-apc-ups-alert",
+  "version": "0.0.1",
+  "description": "Provide information (and alerts) for apcupsd connected Uninterruptible Power Supplies",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git://github.com/USERNAME/GITHUB_PROJECT_NAME.git"
+    "url": "git://github.com/itavero/homebridge-apc-ups-alert.git"
   },
   "bugs": {
-    "url": "https://github.com/USERNAME/GITHUB_PROJECT_NAME/issues"
+    "url": "https://github.com/itavero/homebridge-apc-ups-alert/issues"
   },
+  "funding": [
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/itavero"
+    },
+    {
+      "type": "buymeacoffee",
+      "url": "https://www.buymeacoffee.com/arno"
+    },
+    {
+      "type": "paypal",
+      "url": "https://paypal.me/arnom/EUR"
+    }
+  ],
   "engines": {
     "node": ">=14.18.1",
     "homebridge": ">=1.3.5"
   },
   "main": "dist/index.js",
   "scripts": {
-    "lint": "eslint src/**.ts --max-warnings=0",
-    "watch": "npm run build && npm link && nodemon",
+    "test": "jest --passWithNoTests --coverage && eslint --max-warnings=0 '**/*.ts'",
+    "coverage": "jest --passWithNoTests --coverage && open coverage/lcov-report/index.html",
+    "watch:test": "jest --watch",
+    "lint": "eslint '**/*.ts' --fix --max-warnings=0",
     "build": "rimraf ./dist && tsc",
-    "prepublishOnly": "npm run lint && npm run build"
+    "start": "npm run build && npm link && homebridge -I -D",
+    "check-release": "release-it --dry-run -VV",
+    "release": "release-it",
+    "check-pre-release": "release-it --dry-run -VV --npm.tag=next",
+    "pre-release": "release-it --npm.tag=next"
   },
   "keywords": [
-    "homebridge-plugin"
+    "homebridge-plugin",
+    "apcupsd",
+    "apcaccess",
+    "ups",
+    "apc"
   ],
-  "dependencies": {},
+  "dependencies": {
+    "apcaccess": "^1.1.2"
+  },
   "devDependencies": {
+    "@release-it/keep-a-changelog": "^2.2.2",
+    "@types/jest": "^27.0.1",
     "@types/node": "^16.10.9",
-    "@typescript-eslint/eslint-plugin": "^5.0.0",
-    "@typescript-eslint/parser": "^5.0.0",
-    "eslint": "^8.0.1",
+    "@typescript-eslint/eslint-plugin": "^5.3.1",
+    "@typescript-eslint/parser": "^5.3.1",
+    "eslint": "^8.2.0",
     "homebridge": "^1.3.5",
+    "jest": "^27.0.3",
+    "jest-chain": "^1.1.5",
+    "jest-mock-extended": "^2.0.1",
+    "jest-sonar": "^0.2.11",
+    "jest-when": "^3.0.1",
     "nodemon": "^2.0.13",
+    "release-it": "^14.2.2",
     "rimraf": "^3.0.2",
+    "ts-jest": "^27.0.2",
     "ts-node": "^10.3.0",
     "typescript": "^4.4.4"
   }

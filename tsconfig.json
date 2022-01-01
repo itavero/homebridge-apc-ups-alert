@@ -15,10 +15,12 @@
     "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
-    "noImplicitAny": false
+    "noImplicitAny": false,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   },
   "include": [
-    "src/"
+    "src/", "decs.d.ts"
   ],
   "exclude": [
     "**/*.spec.ts"

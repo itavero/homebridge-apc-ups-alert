@@ -1,15 +1,51 @@
 {
-  "pluginAlias": "ExampleHomebridgePlugin",
+  "pluginAlias": "apc-ups-alert",
   "pluginType": "platform",
   "singular": true,
   "schema": {
     "type": "object",
     "properties": {
-      "name": {
-        "title": "Name",
-        "type": "string",
+      "defaults": {
+        "title": "Default configuration for all servers",
+        "type": "object",
+        "required": false,
+        "properties": {
+          "interval": {
+            "title": "Update interval (seconds)",
+            "type": "number",
+            "default": 60
+          },
+          "low_battery_threshold": {
+            "title": "Low battery threshold (percent)",
+            "type": "number",
+            "default": 40
+          }
+        }
+      },
+      "server": {
+        "title": "Network Information Servers",
+        "type": "array",
         "required": true,
-        "default": "Example Dynamic Platform"
+        "items": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "title": "Hostname or IP address",
+              "type": "string",
+              "required": true
+            },
+            "port": {
+              "title": "Port",
+              "type": "number",
+              "required": false
+            },
+            "interval": {
+              "title": "Update interval (seconds)",
+              "type": "number",
+              "required": false
+            }
+          }
+        }
       }
     }
   }
