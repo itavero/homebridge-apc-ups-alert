@@ -13,7 +13,9 @@ export const isPluginConfiguration = (x: PlatformConfig, logger: Logger | undefi
 
   if (x.servers === undefined || !Array.isArray(x.servers) || x.servers.length === 0) {
     logger?.error('Incorrect configuration: servers must be an array of servers and contain at least one server.');
+    return false;
   }
+
   for (const server of x.servers) {
     if (!isServerConfiguration(server)) {
       logger?.error('Incorrect configuration: Entry for server is not correct: ' + JSON.stringify(server));
